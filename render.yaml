@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: utah-interop-dashboard
+    env: python
+    buildCommand: ""
+    startCommand: python3 utah-interop-server.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0

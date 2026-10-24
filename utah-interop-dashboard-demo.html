@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Utah Interoperability Dashboard — DEMO</title>
+<style>
+  :root { --navy:#0a2a5e; --navy2:#071d3b; --gold:#c9a227; --bg:#0b1220; --card:#141f33;
+    --green:#2ecc71; --amber:#f5b301; --red:#e74c3c; --purple:#9b59b6; --text:#e8edf5; --muted:#9aa7bd; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Arial, Helvetica, sans-serif; background:var(--bg); color:var(--text); }
+  .demo-banner { background:var(--purple); color:#fff; text-align:center; padding:10px 12px; font-weight:bold; letter-spacing:.5px; }
+  .demo-banner small { display:block; font-weight:normal; opacity:.9; margin-top:2px; }
+  header { background:linear-gradient(180deg, var(--navy), var(--navy2)); border-bottom:3px solid var(--gold); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; }
+  header h1 { margin:0; font-size:26px; }
+  header .sub { color:#cdd6e4; font-size:14px; }
+  #clock { font-size:20px; font-weight:bold; }
+  main { max-width:1100px; margin:0 auto; padding:18px; }
+  h2 { font-size:19px; border-bottom:1px solid #2a3a5c; padding-bottom:6px; }
+  .regions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 4px; }
+  .regions button { background:#1d2c4d; color:var(--text); border:1px solid #35507f; border-radius:20px; padding:8px 14px; cursor:pointer; font-size:14px; }
+  .regions button.active { background:var(--gold); color:#111; border-color:var(--gold); font-weight:bold; }
+  .region-note { color:var(--muted); font-size:13px; margin:6px 0 16px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid #2a3a5c; border-radius:8px; padding:14px; }
+  .card h3 { margin:0 0 6px; font-size:16px; }
+  .card p { margin:4px 0; color:var(--muted); font-size:14px; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:bold; color:#111; }
+  .ok { background:var(--green); } .deg { background:var(--amber); } .down { background:var(--red); color:#fff; }
+  .activity { background:var(--card); border:1px solid #2a3a5c; border-radius:8px; padding:6px 14px; }
+  .act-row { display:flex; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid #223250; font-size:15px; }
+  .act-row:last-child { border-bottom:none; }
+  .act-row .tg { font-weight:bold; }
+  .act-row .meta { color:var(--muted); font-size:13px; }
+  .live-dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--red); margin-right:6px; animation:blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .feeds li { margin:8px 0; font-size:15px; }
+  .feeds a { color:#7fb2ff; }
+  .sources li { margin:8px 0; font-size:15px; color:#cdd6e4; }
+  footer { color:var(--muted); font-size:13px; text-align:center; padding:20px; }
+</style>
+</head>
+<body>
+<div class="demo-banner">DEMO VERSION — ALL DATA ON THIS PAGE IS SIMULATED
+  <small>No real UCA talkgroups, sites, or traffic appear here. Every talkgroup name is prefixed DEMO.</small>
+</div>
+<header>
+  <div>
+    <h1>Utah Interoperability Dashboard</h1>
+    <div class="sub">System status &bull; Demo — region view, system health, talkgroup activity, audio feeds</div>
+  </div>
+  <div id="clock">--:--:--</div>
+</header>
+<main>
+  <h2>Regions</h2>
+  <div class="regions" id="regionBtns"></div>
+  <div class="region-note" id="regionNote"></div>
+
+  <h2>System health <span style="color:var(--muted);font-size:13px;">(demo statuses)</span></h2>
+  <div class="cards" id="healthCards"></div>
+
+  <h2><span class="live-dot"></span>Talkgroup activity <span style="color:var(--muted);font-size:13px;">(SIMULATED — refreshes every few seconds)</span></h2>
+  <div class="activity" id="activity"></div>
+  <p style="color:var(--muted);font-size:13px;">The real version would show talkgroup, area, and last-heard time only. No audio, no unit IDs.</p>
+
+  <h2>Listen — Broadcastify Utah audio feeds</h2>
+  <p style="color:var(--muted);font-size:14px;">Live audio feeds are volunteer-run, so coverage varies by county. These are the most-listened public safety feeds in Utah right now; the full list lives on the Utah page.</p>
+  <ul class="feeds">
+    <li>Davis County UCA 700 MHz P25 System</li>
+    <li>Cache County Public Safety</li>
+    <li>Box Elder and Weber County Public Safety</li>
+    <li>Utah County Public Safety</li>
+    <li>Salt Lake County Public Safety</li>
+    <li>Tooele County Public Safety</li>
+  </ul>
+  <p><a href="https://www.broadcastify.com/listen/stid/49">Open all Utah feeds on Broadcastify &raquo;</a></p>
+
+  <h2>How the real version gets its data</h2>
+  <ul class="sources">
+    <li><b>UCA official feed (authoritative, to be confirmed):</b> system activity/status data from the system operator — the only source that covers the whole state.</li>
+    <li><b>Broadcastify Calls Client API (candidate):</b> per-call metadata (system, talkgroup, time) for approved applications. Internal, restricted dashboards are a named legitimate use; a public statewide app would need an enterprise license instead. Verify a Utah node covers UCA before relying on it.</li>
+    <li><b>Broadcastify Live Audio Feed Catalog API:</b> programmatic listing of the audio feeds above, so the real dashboard can link feeds by county automatically.</li>
+  </ul>
+</main>
+<footer>Demo only — not for operational use. Real deployment: restricted audience, activity-only display, no real fleet data without approval.</footer>
+<script>
+const REGIONS = {
+  ALL: { name: "All regions", counties: "All 29 Utah counties" },
+  BR: { name: "Bear River", counties: "Box Elder, Cache, Rich" },
+  WF: { name: "Wasatch Front", counties: "Weber, Davis, Morgan" },
+  OQ: { name: "Oquirrh", counties: "Tooele, Salt Lake" },
+  MT: { name: "Mountain", counties: "Summit, Wasatch, Utah, Juab" },
+  NE: { name: "Northeast", counties: "Daggett, Duchesne, Uintah" },
+  CN: { name: "Central", counties: "Millard, Sanpete, Sevier, Piute, Wayne" },
+  SW: { name: "Southwest", counties: "Beaver, Iron, Washington, Garfield, Kane" },
+  SE: { name: "Southeast", counties: "Carbon, Emery, Grand, San Juan" }
+};
+const HEALTH = [
+  { region: "BR", title: "DEMO P25 Site — Bear River", status: "ok", label: "Operational", note: "Demo site. No real site data." },
+  { region: "WF", title: "DEMO VHF Repeater — Wasatch Front", status: "deg", label: "Degraded", note: "Demo status: reduced coverage." },
+  { region: "OQ", title: "DEMO Gateway — Oquirrh", status: "ok", label: "Operational", note: "Demo bridge resource." },
+  { region: "MT", title: "DEMO P25 Site — Mountain", status: "down", label: "Out of service", note: "Demo outage for illustration." },
+  { region: "CN", title: "DEMO Cache Radio Pool — Central", status: "ok", label: "Available", note: "Demo pool: 12 units (fake)." },
+  { region: "SW", title: "DEMO VHF Repeater — Southwest", status: "ok", label: "Operational", note: "Demo site. No real site data." },
+  { region: "NE", title: "DEMO Gateway — Northeast", status: "deg", label: "Degraded", note: "Demo status: intermittent link." },
+  { region: "SE", title: "DEMO P25 Site — Southeast", status: "ok", label: "Operational", note: "Demo site. No real site data." }
+];
+const DEMO_TGS = [
+  ["DEMO FIRE TAC 1", "Fire"], ["DEMO EMS DISP", "EMS"], ["DEMO LAW TAC 2", "Law"],
+  ["DEMO INTEROP CALL", "Interop"], ["DEMO FIRE OPS 3", "Fire"], ["DEMO SAR 1", "SAR"],
+  ["DEMO EMS TAC 1", "EMS"], ["DEMO LAW DISP", "Law"]
+];
+let currentRegion = "ALL";
+function renderRegions() {
+  const wrap = document.getElementById("regionBtns");
+  wrap.innerHTML = "";
+  Object.keys(REGIONS).forEach(function(code) {
+    const b = document.createElement("button");
+    b.textContent = (code === "ALL" ? "All" : code) + " — " + REGIONS[code].name;
+    if (code === currentRegion) b.className = "active";
+    b.onclick = function() { currentRegion = code; renderRegions(); renderHealth(); };
+    wrap.appendChild(b);
+  });
+  document.getElementById("regionNote").textContent =
+    REGIONS[currentRegion].name + ": " + REGIONS[currentRegion].counties;
+}
+function renderHealth() {
+  const wrap = document.getElementById("healthCards");
+  const list = HEALTH.filter(function(h) { return currentRegion === "ALL" || h.region === currentRegion; });
+  wrap.innerHTML = list.length ? list.map(function(h) {
+    return "<div class='card'><h3>" + h.title + "</h3>" +
+      "<p><span class='pill " + h.status + "'>" + h.label + "</span></p>" +
+      "<p>" + h.note + "</p></div>";
+  }).join("") : "<p style='color:var(--muted);'>No demo systems in this region.</p>";
+}
+function randomActivity() {
+  const tg = DEMO_TGS[Math.floor(Math.random() * DEMO_TGS.length)];
+  const codes = Object.keys(REGIONS).filter(function(c) { return c !== "ALL"; });
+  const region = (currentRegion === "ALL")
+    ? codes[Math.floor(Math.random() * codes.length)] : currentRegion;
+  return { tg: tg[0], svc: tg[1], region: region };
+}
+function renderActivity() {
+  const rows = [];
+  for (let i = 0; i < 6; i++) {
+    const a = randomActivity();
+    const mins = Math.floor(Math.random() * 12);
+    rows.push("<div class='act-row'><div><span class='tg'>" + a.tg + "</span> " +
+      "<span class='meta'>&bull; " + a.svc + " &bull; " + REGIONS[a.region].name + " Region</span></div>" +
+      "<div class='meta'>" + (mins === 0 ? "ACTIVE NOW" : "last heard " + mins + " min ago") + "</div></div>");
+  }
+  document.getElementById("activity").innerHTML = rows.join("");
+}
+function tickClock() {
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString();
+}
+renderRegions();
+renderHealth();
+renderActivity();
+tickClock();
+setInterval(renderActivity, 5000);
+setInterval(tickClock, 1000);
+</script>
+</body>
+</html>

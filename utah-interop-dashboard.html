@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Utah Interoperability Dashboard — v2 (Demo Data)</title>
+<style>
+  :root { --navy:#0a2a5e; --navy2:#071d3b; --gold:#c9a227; --bg:#0b1220; --card:#141f33;
+    --green:#2ecc71; --amber:#f5b301; --red:#e74c3c; --purple:#9b59b6; --text:#e8edf5; --muted:#9aa7bd; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Arial, Helvetica, sans-serif; background:var(--bg); color:var(--text); }
+  .demo-banner { background:var(--purple); color:#fff; text-align:center; padding:10px 12px; font-weight:bold; }
+  .demo-banner small { display:block; font-weight:normal; opacity:.9; margin-top:2px; }
+  .access-note { background:#3a2a00; color:#ffd970; text-align:center; padding:8px 12px; font-size:14px; }
+  header { background:linear-gradient(180deg, var(--navy), var(--navy2)); border-bottom:3px solid var(--gold); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; }
+  header h1 { margin:0; font-size:26px; }
+  header .sub { color:#cdd6e4; font-size:14px; }
+  #clock { font-size:20px; font-weight:bold; }
+  main { max-width:1100px; margin:0 auto; padding:18px; }
+  h2 { font-size:19px; border-bottom:1px solid #2a3a5c; padding-bottom:6px; }
+  .regions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 4px; }
+  .regions button { background:#1d2c4d; color:var(--text); border:1px solid #35507f; border-radius:20px; padding:8px 14px; cursor:pointer; font-size:14px; }
+  .regions button.active { background:var(--gold); color:#111; border-color:var(--gold); font-weight:bold; }
+  .region-note { color:var(--muted); font-size:13px; margin:6px 0 16px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid #2a3a5c; border-radius:8px; padding:14px; }
+  .card h3 { margin:0 0 6px; font-size:16px; }
+  .card p { margin:4px 0; color:var(--muted); font-size:14px; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:bold; color:#111; }
+  .ok { background:var(--green); } .degraded { background:var(--amber); } .out { background:var(--red); color:#fff; }
+  .activity { background:var(--card); border:1px solid #2a3a5c; border-radius:8px; padding:6px 14px; }
+  .act-row { display:flex; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid #223250; font-size:15px; }
+  .act-row:last-child { border-bottom:none; }
+  .act-row .tg { font-weight:bold; }
+  .act-row .meta { color:var(--muted); font-size:13px; }
+  .live-dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--red); margin-right:6px; animation:blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .feeds li, .steps li, .sources li { margin:8px 0; font-size:15px; color:#cdd6e4; }
+  .feeds a { color:#7fb2ff; }
+  .tbd { color:var(--amber); font-weight:bold; }
+  footer { color:var(--muted); font-size:13px; text-align:center; padding:20px; }
+</style>
+</head>
+<body>
+<div class="demo-banner">v2 — DEMO DATA ONLY
+  <small>All talkgroups, sites, and activity are simulated. No real UCA data. Every talkgroup name is DEMO-prefixed.</small>
+</div>
+<div class="access-note">Restricted audience: dispatch centers, regional LNOs, fire, EMS, police. Access control (login or network restriction) to be added at deployment — this demo has no real access gate.</div>
+<header>
+  <div>
+    <h1>Utah Interoperability Dashboard</h1>
+    <div class="sub">System status &bull; v2 server edition &bull; Data: simulated (plug-in points ready for live sources)</div>
+  </div>
+  <div id="clock">--:--:--</div>
+</header>
+<main>
+  <h2>Regions</h2>
+  <div class="regions" id="regionBtns"></div>
+  <div class="region-note" id="regionNote"></div>
+
+  <h2>System health <span style="color:var(--muted);font-size:13px;">(demo statuses — server: /api/status)</span></h2>
+  <div class="cards" id="healthCards"></div>
+
+  <h2><span class="live-dot"></span>Talkgroup activity <span style="color:var(--muted);font-size:13px;">(SIMULATED — server: /api/activity, refreshes every 10s)</span></h2>
+  <div class="activity" id="activity"></div>
+  <p style="color:var(--muted);font-size:13px;">The real version shows talkgroup, area, and last-heard time only. No audio, no unit IDs.</p>
+
+  <h2>Listen — Broadcastify Utah audio feeds</h2>
+  <p style="color:var(--muted);font-size:14px;">Volunteer-run live audio. Coverage varies by county. Server: /api/feeds.</p>
+  <ul class="feeds" id="feedList"></ul>
+  <p><a id="feedPageLink" href="https://www.broadcastify.com/listen/stid/49">Open all Utah feeds on Broadcastify &raquo;</a></p>
+
+  <h2>Request interop support</h2>
+  <ol class="steps">
+    <li>Identify the need: what agencies must talk, and where. <span class="tbd">[Procedure TBD — to be confirmed, not yet doctrine]</span></li>
+    <li>Contact: <span class="tbd">[Contact / duty number TBD]</span></li>
+    <li>State the incident, the area, and the resource needed (gateway, cache radios, COML). <span class="tbd">[Steps TBD]</span></li>
+  </ol>
+
+  <h2>How v2 gets real data (when approved)</h2>
+  <ul class="sources">
+    <li><b>Broadcastify Calls Client API:</b> replace the simulated activity with live call metadata (system, talkgroup, time). Needs an approved developer key, stored as a server environment variable — never in the repo.</li>
+    <li><b>Broadcastify Live Audio Feed Catalog API:</b> replace the static feed list with programmatic county-by-county listings.</li>
+    <li><b>UCA official feed:</b> authoritative system activity/status, if provided — the long-term source.</li>
+  </ul>
+</main>
+<footer>Demo only — not for operational use. Real deployment: restricted audience, activity-only display, no real fleet data without approval.</footer>
+<script>
+let REGIONS = {};
+let currentRegion = "ALL";
+let statusData = [];
+
+function pillClass(s) { return s === "ok" ? "ok" : (s === "degraded" ? "degraded" : "out"); }
+
+function renderRegions() {
+  const wrap = document.getElementById("regionBtns");
+  wrap.innerHTML = "";
+  const codes = ["ALL"].concat(Object.keys(REGIONS));
+  codes.forEach(function(code) {
+    const label = code === "ALL" ? "All regions" : code + " — " + REGIONS[code].name;
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (code === currentRegion) b.className = "active";
+    b.onclick = function() { currentRegion = code; renderRegions(); renderHealth(); };
+    wrap.appendChild(b);
+  });
+  const r = currentRegion === "ALL"
+    ? { name: "All regions", counties: "All 29 Utah counties" } : REGIONS[currentRegion];
+  document.getElementById("regionNote").textContent = r.name + ": " + r.counties;
+}
+
+function renderHealth() {
+  const wrap = document.getElementById("healthCards");
+  const list = statusData.filter(function(h) { return currentRegion === "ALL" || h.region === currentRegion; });
+  wrap.innerHTML = list.length ? list.map(function(h) {
+    return "<div class='card'><h3>" + h.title + "</h3>" +
+      "<p><span class='pill " + pillClass(h.status) + "'>" + h.label + "</span></p>" +
+      "<p>" + h.note + "</p></div>";
+  }).join("") : "<p style='color:var(--muted);'>No demo systems in this region.</p>";
+}
+
+async function loadStatus() {
+  try {
+    const res = await fetch("/api/status");
+    const data = await res.json();
+    REGIONS = data.regions || {};
+    statusData = data.systems || [];
+    renderRegions();
+    renderHealth();
+  } catch (e) {
+    document.getElementById("healthCards").innerHTML =
+      "<p style='color:var(--muted);'>Status server unreachable — demo data unavailable.</p>";
+  }
+}
+
+async function loadActivity() {
+  try {
+    const res = await fetch("/api/activity");
+    const data = await res.json();
+    const rows = (data.activity || []).map(function(a) {
+      return "<div class='act-row'><div><span class='tg'>" + a.talkgroup + "</span> " +
+        "<span class='meta'>&bull; " + a.service + " &bull; " + a.region_name + " Region</span></div>" +
+        "<div class='meta'>" + (a.active_now ? "ACTIVE NOW" : "last heard " + a.last_heard_min + " min ago") + "</div></div>";
+    });
+    document.getElementById("activity").innerHTML = rows.join("") ||
+      "<p style='color:var(--muted);'>No simulated activity right now.</p>";
+  } catch (e) {
+    document.getElementById("activity").innerHTML =
+      "<p style='color:var(--muted);'>Activity server unreachable.</p>";
+  }
+}
+
+async function loadFeeds() {
+  try {
+    const res = await fetch("/api/feeds");
+    const data = await res.json();
+    document.getElementById("feedList").innerHTML = (data.feeds || []).map(function(f) {
+      return "<li>" + f + "</li>";
+    }).join("");
+    const link = document.getElementById("feedPageLink");
+    link.href = data.page_url || link.href;
+    link.textContent = (data.page_label || "Open all Utah feeds on Broadcastify") + " »";
+  } catch (e) {
+    document.getElementById("feedList").innerHTML =
+      "<li style='color:var(--muted);'>Feed list unavailable.</li>";
+  }
+}
+
+function tickClock() {
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString();
+}
+
+loadStatus();
+loadActivity();
+loadFeeds();
+tickClock();
+setInterval(loadActivity, 10000);
+setInterval(tickClock, 1000);
+</script>
+</body>
+</html>
