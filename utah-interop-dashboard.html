@@ -58,7 +58,7 @@
   <h2>Talkgroup activity <span style="color:var(--muted);font-size:13px;">(server: /api/activity)</span></h2>
   <div class="regions" id="activityRegionBtns"></div>
   <div class="activity" id="activity"></div>
-  <p style="color:var(--muted);font-size:13px;">Rows are grouped by region (RegionId from the talkgroup list), most recent first within each region. This panel shows talkgroup, area, and last-heard time only. No audio, no unit IDs.</p>
+  <p style="color:var(--muted);font-size:13px;">Rows are grouped by region (RegionId from the talkgroup list), most recent first within each region. Sources: Broadcastify (statewide, last-heard minutes) and Cache-area kf7oir (active now only — that source carries no last-heard time). This panel shows talkgroup, area, and time only. No audio, no unit IDs.</p>
 
   <h2>Listen — Broadcastify Utah audio feeds</h2>
   <p style="color:var(--muted);font-size:14px;">Volunteer-run live audio. Coverage varies by county. Server: /api/feeds.</p>
@@ -179,8 +179,9 @@ function renderActivityRows() {
   const rows = filtered.map(function(a) {
     const main = a.alias ? a.alias : a.talkgroup;
     const sub = a.alias ? "TG " + a.talkgroup + " &bull; " : "";
+    const src = a.source_label ? a.source_label : "Broadcastify";
     return "<div class='act-row'><div><span class='tg'>" + main + "</span> " +
-      "<span class='meta'>&bull; " + sub + a.service + " &bull; " + regionLabel(a.region_name) + "</span></div>" +
+      "<span class='meta'>&bull; " + sub + a.service + " &bull; " + src + " &bull; " + regionLabel(a.region_name) + "</span></div>" +
       "<div class='meta'>" + (a.active_now ? "ACTIVE NOW" : "last heard " + a.last_heard_min + " min ago") + "</div></div>";
   });
   document.getElementById("activity").innerHTML = rows.length ? rows.join("") :

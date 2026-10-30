@@ -91,6 +91,41 @@ feeding UCA — that is a coverage gap, not a code bug. If the live
 method takes filter parameters (system/group), add them to the
 endpoint URL so reads — and metered cost — stay scoped to UCA.
 
+## kf7oir graph-stream — second source, Cache-area only (Oct 30, 2026)
+
+`/api/activity` also polls a friend's Trunk-Recorder status server
+(permission confirmed Oct 30, 2026; public, anonymous stream, no
+credentials) on the same 60-second cadence. Endpoint (override with
+`KF7OIR_GRAPH_STREAM_URL` if it ever moves):
+`https://status.kf7oir.com/graph-stream`
+
+How it works: connect, read the initial graph dump (`an` nodes,
+then `ae` edges), extract talkgroup nodes with status `tg_active`
+or `tg_enc_active`, disconnect. No permanent connection is needed.
+Unit nodes and ALL edges are discarded server-side and never reach
+the page; only talkgroup + alias + region + active status are kept.
+Audio is never fetched.
+
+Limits, by design (v1):
+- Coverage is Cache-area only (the recorder's local systems), NOT
+  statewide — rows are labelled `Cache-area` in the panel, distinct
+  from `Broadcastify` rows, so the two coverages are never conflated.
+- Active-only: talkgroup nodes carry NO last-active timestamp, so
+  kf7oir rows always show ACTIVE NOW and drop off on the next poll
+  when their status goes idle. No last-heard minutes from this source.
+- Alias-filtered: only talkgroups present in the alias list are
+  shown, because graph nodes carry no system field and an unfiltered
+  pull could mix in the recorder's FM channels. Active talkgroups
+  absent from the alias list are excluded in v1 (at the Oct 30 check,
+  3 of 82 active nodes fell in this bucket).
+- Encrypted-active (`tg_enc_active`) counts as active metadata only
+  (no audio, no content); filter it out if that ruling changes.
+- Failures return empty kf7oir rows with an error, never stale
+  actives; a Broadcastify outage does not hide kf7oir rows, and
+  vice versa. Diagnostics in `/api/activity`: `kf7oir_connected`,
+  `kf7oir_error`, `kf7oir_active` (filtered active count before
+  the 50-row cap), `kf7oir_source`.
+
 ## Talkgroup aliases (channel names)
 
 The activity panel shows the channel alias when one is mapped, with

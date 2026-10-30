@@ -342,11 +342,130 @@ def _calls_to_rows(calls, sid, now, talkgroups=None, aliases=None):
             "talkgroup": tg,
             "alias": info.get("alias"),
             "service": "UCA P25",
+            "source_label": "Broadcastify",
             "region_name": info.get("region") or "Statewide",
             "active_now": age <= 120,
             "last_heard_min": int(age // 60),
         })
     return rows[:CALLS_MAX_ROWS]
+
+
+# --- kf7oir Trunk-Recorder graph-stream (second source) --------------
+# Public, anonymous stream (friend's recorder, permission confirmed
+# Oct 30, 2026). The server polls it on the same 60s cadence as
+# Broadcastify: connect, read the initial graph dump ({"an": nodes}
+# then {"ae": edges}), extract currently-active talkgroup nodes, and
+# disconnect — no permanent connection is needed, because the dump
+# itself carries the full tracked network. Unit nodes and ALL edges
+# are discarded server-side and never reach the page; only talkgroup
+# + alias + region + active status are kept. Talkgroup nodes carry
+# NO last-active timestamp, so kf7oir rows are active-only
+# (active_now True, last_heard_min 0) and drop off on the next poll
+# when their status goes idle. v1 scope: only talkgroups present in
+# the alias list are shown, which keeps the feed to known UCA
+# talkgroups (nodes carry no system field, so an unfiltered pull
+# could mix in the recorder's FM channels); active talkgroups absent
+# from the alias list are excluded in v1, not shown number-only.
+KF7OIR_STREAM_URL = os.environ.get(
+    "KF7OIR_GRAPH_STREAM_URL",
+    "https://status.kf7oir.com/graph-stream").strip()
+KF7OIR_ACTIVE_STATUSES = {"tg_active", "tg_enc_active"}
+_kf7oir_cache = {"fetched_at": 0.0, "rows": [], "connected": False,
+                  "error": None, "active_count": 0}
+_kf7oir_lock = threading.Lock()
+
+
+def get_kf7oir_activity(aliases, now):
+    """Poll the kf7oir graph-stream (cached 60s) for active talkgroups.
+
+    Returns dict with rows (active-only), connected, error, and
+    active_count (filtered active nodes before the 50-row cap).
+    Failures return empty rows with an error, never stale actives,
+    and never raise to the caller.
+    """
+    with _kf7oir_lock:
+        if now - _kf7oir_cache["fetched_at"] < CALLS_TTL_SECONDS \
+                and _kf7oir_cache["fetched_at"] > 0:
+            return dict(_kf7oir_cache, rows=list(_kf7oir_cache["rows"]))
+    aliases = aliases or {}
+    deadline = now + 20.0
+    an_nodes = None
+    error = None
+    try:
+        req = urllib.request.Request(
+            KF7OIR_STREAM_URL,
+            headers={"User-Agent":
+                     "Utah-Interop-Dashboard/1.0 kf7oir-poll"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            for raw in resp:
+                if time.time() > deadline:
+                    break
+                try:
+                    obj = json.loads(raw.decode("utf-8", "ignore"))
+                except Exception:
+                    continue
+                if "an" in obj and an_nodes is None:
+                    an_nodes = obj["an"]
+                if "ae" in obj:
+                    break
+    except Exception as exc:
+        error = type(exc).__name__
+        if isinstance(exc, urllib.error.HTTPError):
+            error = "HTTP %s" % exc.code
+    if an_nodes is None:
+        result = {"rows": [], "connected": False,
+                  "error": "kf7oir stream unreadable: %s" % (error or "no dump"),
+                  "active_count": 0}
+        with _kf7oir_lock:
+            _kf7oir_cache.update(result, fetched_at=now)
+        return dict(result, rows=[])
+    rows = []
+    for nid, attrs in an_nodes.items():
+        if not isinstance(nid, str) or not nid.startswith("TG-"):
+            continue
+        tg = nid[3:]
+        if not tg.isdigit():
+            continue
+        if not isinstance(attrs, dict):
+            continue
+        if attrs.get("status") not in KF7OIR_ACTIVE_STATUSES:
+            continue
+        if aliases and tg not in aliases:
+            continue
+        info = aliases.get(tg, {}) if aliases else {}
+        rows.append({
+            "talkgroup": tg,
+            "alias": info.get("alias") or attrs.get("label"),
+            "service": "UCA P25",
+            "source_label": "Cache-area",
+            "region_name": info.get("region") or "Statewide",
+            "active_now": True,
+            "last_heard_min": 0,
+        })
+    active_count = len(rows)
+    rows.sort(key=lambda r: (_region_order(r["region_name"])[0],
+                             _region_order(r["region_name"])[1],
+                             r["alias"] or r["talkgroup"]))
+    rows = rows[:CALLS_MAX_ROWS]
+    result = {"rows": rows, "connected": True, "error": None,
+              "active_count": active_count}
+    with _kf7oir_lock:
+        _kf7oir_cache.update(result, fetched_at=now)
+    return dict(result, rows=list(rows))
+
+
+def _merge_activity(b_rows, k_rows):
+    """Merge Broadcastify + kf7oir rows: region first, then most
+    recent first within each region (kf7oir active-only rows sort
+    with the most-recent group, last_heard_min 0), then source,
+    then alias. Capped at 50 rows per source, 100 merged."""
+    merged = list(b_rows or []) + list(k_rows or [])
+    merged.sort(key=lambda r: (_region_order(r["region_name"])[0],
+                               _region_order(r["region_name"])[1],
+                               r.get("last_heard_min", 0),
+                               r.get("source_label", ""),
+                               r.get("alias") or r.get("talkgroup", "")))
+    return merged[:100]
 
 
 # --- Incremental live fetching (cost control) --------------------------
@@ -438,6 +557,7 @@ def _state_to_rows(state, now, aliases):
             "talkgroup": tg,
             "alias": info.get("alias"),
             "service": "UCA P25",
+            "source_label": "Broadcastify",
             "region_name": info.get("region") or "Statewide",
             "active_now": age <= 120,
             "last_heard_min": int(age // 60),
@@ -446,7 +566,26 @@ def _state_to_rows(state, now, aliases):
 
 
 def get_calls_activity():
-    """Fetch (cached 60s) or return the honest not-connected state."""
+    """Fetch (cached 60s) or return the honest not-connected state.
+
+    Merges Broadcastify (statewide, last-heard minutes) with kf7oir
+    graph-stream (Cache-area, active-only). The Broadcastify cache
+    stores Broadcastify-only rows; kf7oir rows are merged fresh on
+    every return, so a Broadcastify outage never hides kf7oir rows
+    and vice versa.
+    """
+    _kf_now = time.time()
+    _kf_aliases = _load_aliases()
+    _kf = get_kf7oir_activity(_kf_aliases, _kf_now)
+
+    def with_kf(result, b_rows):
+        out = dict(result)
+        out["activity"] = _merge_activity(b_rows, _kf["rows"])
+        out["kf7oir_connected"] = _kf["connected"]
+        out["kf7oir_error"] = _kf["error"]
+        out["kf7oir_active"] = _kf["active_count"]
+        out["kf7oir_source"] = "kf7oir graph-stream"
+        return out
     global _live_pos, _last_success
     key = os.environ.get("BROADCASTIFY_API_KEY")
     key_id = os.environ.get("BROADCASTIFY_API_KEY_ID")
@@ -457,15 +596,22 @@ def get_calls_activity():
     talkgroups = ({t.strip() for t in tg_env.split(",") if t.strip()}
                   if tg_env else None)
     if not key or not key_id or not app_id or not endpoint:
-        return {"connected": False, "source": "Broadcastify Calls",
-                "activity": [],
-                "error": "Calls API not configured (key/key id/app id/endpoint missing)"}
+        _dbg = _alias_debug()
+        return with_kf(
+            {"connected": False, "source": "Broadcastify Calls",
+             "activity": [],
+             "error": "Calls API not configured (key/key id/app id/endpoint missing)",
+             "aliases_loaded": len(_kf_aliases),
+             "alias_source": _dbg["source"],
+             "alias_path": _dbg["path"],
+             "alias_secret_files": _dbg["secret_files"]},
+            [])
     now = time.time()
     with _calls_lock:
         if now - _calls_cache["fetched_at"] < CALLS_TTL_SECONDS:
             cached = dict(_calls_cache)
             cached.pop("fetched_at", None)
-            return cached
+            return with_kf(cached, cached.get("activity", []))
     # Live Calls parameters are mutually exclusive (playlist_uuid, sid,
     # nodeId, groups). If the endpoint has no query attribute at all,
     # scope the fetch to this system with ?sid=<sid> so the request
@@ -519,7 +665,7 @@ def get_calls_activity():
                   "alias_secret_files": debug["secret_files"]}
         with _calls_lock:
             _calls_cache.update(result, fetched_at=now)
-        return result
+        return with_kf(result, [])
     calls, resp_last_pos = _extract_live_data(data)
     with _calls_lock:
         max_ts = None
@@ -556,7 +702,7 @@ def get_calls_activity():
               "pos_used": pos_used}
     with _calls_lock:
         _calls_cache.update(result, fetched_at=now)
-    return result
+    return with_kf(result, rows)
 
 
 def send_json(handler, obj):
