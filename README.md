@@ -22,9 +22,22 @@ older files remain for reference:
 ## Run locally
 
 ```bash
-python3 utah-interop-server.py
-# open http://localhost:8892/
+DASHBOARD_USERNAME=<you-choose> DASHBOARD_PASSWORD=<you-choose> \
+  python3 utah-interop-server.py
+# open http://localhost:8892/ — the browser will prompt for the login
 ```
+
+## Access gate: shared password (interim, Oct 30, 2026)
+
+Every request requires HTTP Basic Auth. Set the credentials ONLY as
+environment variables on the host (Render: Environment tab):
+`DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`. Never put them in the
+repo, in `render.yaml`, or in chat. If they are unset, the server
+rejects every request (fail closed). This is a shared credential: it
+cannot identify individual users, and it must be changed if it leaks or
+a holder leaves. Cloudflare Access (per-user login) remains the
+longer-term replacement, parked until a domain is available in
+Cloudflare.
 
 ## Endpoints
 
@@ -35,16 +48,34 @@ python3 utah-interop-server.py
 
 ## Before any deployment: ACCESS CONTROL (required)
 
-Add a login gate or network restriction. Do not deploy this shell
-publicly or without an access gate.
+The shared-password gate above must be active before the URL is shared
+with anyone. Do not deploy this shell publicly without it.
+
+## Broadcastify Calls wiring (Oct 30, 2026 — key approved)
+
+`/api/activity` fetches live call metadata for the UCA P25 system
+(RadioReference sid 12042) and shows talkgroup + service + last-heard
+only. Audio URLs and source/unit IDs are stripped server-side and
+never reach the page. One server-side fetch per 60 seconds serves all
+viewers. Environment variables (Render: Environment tab, never the
+repo, never chat):
+
+- `BROADCASTIFY_API_KEY` — Calls Client API developer key
+- `BROADCASTIFY_SYSTEM_ID` — optional, defaults to `12042`
+- `BROADCASTIFY_CALLS_ENDPOINT` — full live-calls endpoint URL from
+  the developer portal docs (bcfy.io/dev/docs). Use `{sid}` where the
+  system id belongs. Until this is set, `/api/activity` honestly
+  reports `connected: false`.
+
+Still to confirm from the portal docs (non-secret, no key needed):
+the exact live-calls endpoint path and auth style. If the API answers
+but returns no UCA groups, a Utah node is not feeding UCA — that is a
+coverage gap, not a code bug.
 
 ## Going live (in order)
 
-1. **Broadcastify Calls Client API.** After developer approval,
-   implement the activity fetch in the server: live call metadata
-   (system, talkgroup, timestamp). Display talkgroup + area + time
-   only — no audio, no source/unit IDs. Key in an environment
-   variable, never in the repo. Verify a Utah node covers UCA first.
+1. **Broadcastify Calls Client API.** See above — wiring is in place,
+   pending the endpoint detail from the portal docs.
 2. **Broadcastify Live Audio Feed Catalog API.** Replace the static
    feed list with programmatic county-by-county listings.
 3. **UCA official feed.** Authoritative system activity/status, if
