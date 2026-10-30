@@ -91,6 +91,31 @@ feeding UCA — that is a coverage gap, not a code bug. If the live
 method takes filter parameters (system/group), add them to the
 endpoint URL so reads — and metered cost — stay scoped to UCA.
 
+## Talkgroup aliases (channel names)
+
+The activity panel shows the channel alias when one is mapped, with
+the talkgroup number kept alongside it; unmapped talkgroups still
+show their number. Format (header row required):
+
+```
+talkgroup,alias,region
+1234,EXAMPLE ALPHA,Wasatch Front
+5678,EXAMPLE BRAVO,
+```
+
+`region` is optional — use a full region name, or leave it blank for
+Statewide. A partial list is fine; only listed talkgroups get names.
+
+**How to provide the file — do NOT put it in the repo or in chat.**
+The alias list is restricted working material. Recommended route:
+Render dashboard → service → Environment → Secret Files → Add
+Secret File, filename `talkgroups.csv`, paste the file contents.
+The server reads `/etc/secrets/talkgroups.csv` automatically on
+restart. Alternative: set `TALKGROUPS_CSV_PATH` to a file path the
+server can read. A repo file named `utah-interop-talkgroups.csv`
+is also read, but only use that route if the repo is private and
+the list is approved for it — never in a public repo.
+
 ## Going live (in order)
 
 1. **Broadcastify Calls Client API.** See above — wiring is in place,

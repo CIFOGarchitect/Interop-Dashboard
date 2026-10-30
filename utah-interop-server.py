@@ -55,6 +55,7 @@ Default local port 8892.
 
 import base64
 import binascii
+import csv
 import hashlib
 import hmac
 import json
@@ -179,11 +180,65 @@ _calls_cache = {"fetched_at": 0.0, "activity": [], "connected": False,
 _calls_lock = threading.Lock()
 
 
-def _calls_to_rows(calls, sid, now, talkgroups=None):
+# --- Talkgroup alias CSV (channel names) -------------------------------
+# Format: talkgroup,alias,region  (region optional, full region name or
+# blank for Statewide). The alias list is restricted working material:
+# it must NEVER go in the repo or in chat. Delivery route is the host's
+# Secret Files (Render mounts them at /etc/secrets/), or a path set in
+# TALKGROUPS_CSV_PATH. A repo file named utah-interop-talkgroups.csv
+# next to this server is also read, but only if the repo is private
+# and the list is approved for it. Absent file -> numbers only.
+_alias_cache = {"path": None, "mtime": None, "size": None, "map": {}}
+
+
+def _alias_csv_path():
+    env_path = os.environ.get("TALKGROUPS_CSV_PATH", "").strip()
+    if env_path:
+        return env_path
+    for candidate in ("/etc/secrets/talkgroups.csv",
+                      os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "utah-interop-talkgroups.csv")):
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _load_aliases():
+    """Load talkgroup -> {alias, region} from CSV, cached by mtime."""
+    path = _alias_csv_path()
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return {}
+    if (_alias_cache["path"] == path
+            and _alias_cache["mtime"] == stat.st_mtime
+            and _alias_cache["size"] == stat.st_size):
+        return _alias_cache["map"]
+    mapping = {}
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                tg = (row.get("talkgroup") or "").strip()
+                alias = (row.get("alias") or "").strip()
+                region = (row.get("region") or "").strip()
+                if tg and alias:
+                    mapping[tg] = {"alias": alias,
+                                   "region": region or None}
+    except (OSError, csv.Error):
+        return _alias_cache["map"]
+    _alias_cache.update(path=path, mtime=stat.st_mtime,
+                        size=stat.st_size, map=mapping)
+    return mapping
+
+
+def _calls_to_rows(calls, sid, now, talkgroups=None, aliases=None):
     """Collapse raw call records to one row per talkgroup, metadata only.
     Drops audio URLs, source/unit IDs, node ids, and everything else.
     talkgroups: optional set of allowed decimal talkgroup IDs; when
-    given, only those talkgroups pass."""
+    given, only those talkgroups pass. aliases: optional mapping from
+    _load_aliases(); unmapped talkgroups keep number-only display."""
     latest = {}
     for item in calls:
         if not isinstance(item, dict):
@@ -212,10 +267,12 @@ def _calls_to_rows(calls, sid, now, talkgroups=None):
     rows = []
     for tg, ts in sorted(latest.items(), key=lambda kv: kv[1], reverse=True):
         age = max(0.0, now - ts)
+        info = (aliases or {}).get(tg, {})
         rows.append({
             "talkgroup": tg,
+            "alias": info.get("alias"),
             "service": "UCA P25",
-            "region_name": "Statewide",
+            "region_name": info.get("region") or "Statewide",
             "active_now": age <= 120,
             "last_heard_min": int(age // 60),
         })
@@ -288,7 +345,7 @@ def get_calls_activity():
         calls = data
     else:
         calls = []
-    rows = _calls_to_rows(calls, sid, now, talkgroups)
+    rows = _calls_to_rows(calls, sid, now, talkgroups, _load_aliases())
     result = {"connected": True, "source": "Broadcastify Calls",
               "activity": rows, "error": None}
     with _calls_lock:

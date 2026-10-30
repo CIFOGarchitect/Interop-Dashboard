@@ -138,8 +138,10 @@ async function loadActivity() {
     const res = await fetch("/api/activity");
     const data = await res.json();
     const rows = (data.activity || []).map(function(a) {
-      return "<div class='act-row'><div><span class='tg'>" + a.talkgroup + "</span> " +
-        "<span class='meta'>&bull; " + a.service + " &bull; " + a.region_name + " Region</span></div>" +
+      const main = a.alias ? a.alias : a.talkgroup;
+      const sub = a.alias ? "TG " + a.talkgroup + " &bull; " : "";
+      return "<div class='act-row'><div><span class='tg'>" + main + "</span> " +
+        "<span class='meta'>&bull; " + sub + a.service + " &bull; " + a.region_name + " Region</span></div>" +
         "<div class='meta'>" + (a.active_now ? "ACTIVE NOW" : "last heard " + a.last_heard_min + " min ago") + "</div></div>";
     });
     document.getElementById("activity").innerHTML = rows.length ? rows.join("") :
