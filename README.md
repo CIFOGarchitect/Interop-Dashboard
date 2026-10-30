@@ -133,6 +133,26 @@ only — never values, audio URLs, or unit IDs) and
 snapshot of the current 5-minute live window, not a full schema;
 rare fields may not appear in a given window.
 
+## Cost control — incremental fetching (pos)
+
+The live method bills per record read. Polling it bare every 60s
+re-reads the same 5-minute window about 5 times, billing every
+re-read — that is how a low per-key cap is hit in under an hour.
+The server therefore fetches incrementally: the first fetch takes
+the last 5 minutes, then each later fetch sends `pos` (newest call
+timestamp from the last response) and receives only newer calls.
+A 5-minute activity state on the server keeps the panel showing
+the same last-5-minutes view. After a gap over 5 minutes (restart,
+outage, cap), it takes a fresh window instead of a huge backfill,
+and a failed fetch leaves state and position untouched.
+
+**Key cap vs account balance are different.** The per-key monthly
+spend cap (set on the key in the portal) stops that key even when
+the shared prepaid account balance still has funds. If the API
+returns HTTP 402 "Key spend cap reached," raise that key's cap in
+the portal — and watch a day of incremental-fetch spend before
+choosing a monthly cap, rather than removing the cap entirely.
+
 ## Going live (in order)
 
 1. **Broadcastify Calls Client API.** See above — wiring is in place,

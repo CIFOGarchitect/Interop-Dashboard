@@ -349,8 +349,87 @@ def _calls_to_rows(calls, sid, now, talkgroups=None, aliases=None):
     return rows[:CALLS_MAX_ROWS]
 
 
+# --- Incremental live fetching (cost control) --------------------------
+# The live method returns the last 5 minutes of calls when no pos is
+# given, so polling it every 60s re-reads the same window ~5 times and
+# bills every re-read. With pos (unix timestamp of the newest call in
+# the last response) it returns only calls newer than pos, so each
+# record is billed once. The server keeps a 5-minute activity state
+# (talkgroup -> latest timestamp) so the panel still shows the same
+# last-5-minutes view, and after a gap over 5 minutes it takes a fresh
+# window instead of a huge backfill. On a failed fetch, state and pos
+# are left untouched.
+_activity_state = {}
+_live_pos = None
+_last_success = 0.0
+STATE_WINDOW_SECONDS = 300
+
+
+def _parse_call_record(item, sid):
+    """Return (talkgroup, timestamp_seconds) or (None, None)."""
+    if not isinstance(item, dict):
+        return None, None
+    group_id = item.get("groupId") or item.get("group_id") or ""
+    ts = item.get("ts")
+    if ts is None:
+        ts = item.get("timestamp") or item.get("start_time")
+    if not group_id or ts is None:
+        return None, None
+    try:
+        ts = float(ts)
+    except (TypeError, ValueError):
+        return None, None
+    if ts > 1e12:  # milliseconds -> seconds
+        ts /= 1000.0
+    prefix = "%s-" % sid
+    if not str(group_id).startswith(prefix):
+        return None, None
+    tg = str(group_id)[len(prefix):]
+    return (tg or None), ts
+
+
+def _extract_live_data(data):
+    """Return (calls_list, lastPos_seconds_or_None) from a live response."""
+    last_pos = None
+    if isinstance(data, dict):
+        calls = (data.get("calls") or data.get("results")
+                 or data.get("data") or [])
+        raw_pos = (data.get("lastPos") or data.get("last_pos")
+                   or data.get("pos"))
+        if raw_pos is not None:
+            try:
+                last_pos = float(raw_pos)
+                if last_pos > 1e12:
+                    last_pos /= 1000.0
+            except (TypeError, ValueError):
+                last_pos = None
+    elif isinstance(data, list):
+        calls = data
+    else:
+        calls = []
+    return calls, last_pos
+
+
+def _state_to_rows(state, now, aliases):
+    """Build panel rows from talkgroup -> latest-timestamp state."""
+    rows = []
+    for tg, ts in sorted(state.items(), key=lambda kv: kv[1], reverse=True):
+        age = max(0.0, now - ts)
+        info = (aliases or {}).get(tg, {})
+        rows.append({
+            "talkgroup": tg,
+            "alias": info.get("alias"),
+            "service": "UCA P25",
+            "region_name": info.get("region") or "Statewide",
+            "active_now": age <= 120,
+            "last_heard_min": int(age // 60),
+        })
+    return rows[:CALLS_MAX_ROWS]
+
+
 def get_calls_activity():
     """Fetch (cached 60s) or return the honest not-connected state."""
+    global _live_pos, _last_success
     key = os.environ.get("BROADCASTIFY_API_KEY")
     key_id = os.environ.get("BROADCASTIFY_API_KEY_ID")
     app_id = os.environ.get("BROADCASTIFY_APP_ID")
@@ -381,6 +460,15 @@ def get_calls_activity():
         query["sid"] = sid
         url = urllib.parse.urlunparse(
             parts._replace(query=urllib.parse.urlencode(query)))
+    # Incremental fetch: only new calls since the last success, unless
+    # the last success is over a window old (fresh window instead).
+    pos_used = False
+    with _calls_lock:
+        if _live_pos is not None and (now - _last_success) <= STATE_WINDOW_SECONDS:
+            query["pos"] = int(_live_pos)
+            url = urllib.parse.urlunparse(
+                parts._replace(query=urllib.parse.urlencode(query)))
+            pos_used = True
     token = _mint_jwt(key, key_id, app_id, now=now,
                       user_id=os.environ.get("BROADCASTIFY_USER_ID"),
                       user_token=os.environ.get("BROADCASTIFY_USER_TOKEN"))
@@ -414,14 +502,30 @@ def get_calls_activity():
         with _calls_lock:
             _calls_cache.update(result, fetched_at=now)
         return result
-    if isinstance(data, dict):
-        calls = data.get("calls") or data.get("results") or data.get("data") or []
-    elif isinstance(data, list):
-        calls = data
-    else:
-        calls = []
+    calls, resp_last_pos = _extract_live_data(data)
+    with _calls_lock:
+        max_ts = None
+        for item in calls:
+            tg, ts = _parse_call_record(item, sid)
+            if tg is None:
+                continue
+            if max_ts is None or ts > max_ts:
+                max_ts = ts
+            if talkgroups is not None and tg not in talkgroups:
+                continue
+            if tg not in _activity_state or ts > _activity_state[tg]:
+                _activity_state[tg] = ts
+        for tg in [t for t, ts in _activity_state.items()
+                   if now - ts > STATE_WINDOW_SECONDS]:
+            del _activity_state[tg]
+        if resp_last_pos is not None:
+            _live_pos = resp_last_pos
+        elif max_ts is not None:
+            _live_pos = max_ts
+        _last_success = now
+        state_snapshot = dict(_activity_state)
     aliases = _load_aliases()
-    rows = _calls_to_rows(calls, sid, now, talkgroups, aliases)
+    rows = _state_to_rows(state_snapshot, now, aliases)
     debug = _alias_debug()
     result = {"connected": True, "source": "Broadcastify Calls",
               "activity": rows, "error": None,
@@ -430,7 +534,8 @@ def get_calls_activity():
               "alias_path": debug["path"],
               "alias_secret_files": debug["secret_files"],
               "call_fields": _call_field_names(calls),
-              "call_records_seen": len(calls)}
+              "call_records_seen": len(calls),
+              "pos_used": pos_used}
     with _calls_lock:
         _calls_cache.update(result, fetched_at=now)
     return result
