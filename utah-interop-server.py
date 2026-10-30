@@ -1,44 +1,46 @@
 #!/usr/bin/env python3
-"""Utah Interoperability Dashboard — v2 server (DEMO DATA).
+"""Utah Interoperability Dashboard — PRODUCTION SHELL.
 
 Serves the dashboard page plus JSON APIs:
   /               -> dashboard HTML
-  /api/status     -> system health cards (demo data)
-  /api/activity   -> talkgroup activity (SIMULATED data)
-  /api/feeds      -> Broadcastify Utah audio feed list (verified names + page link)
+  /api/status     -> system health (EMPTY until a live source connects)
+  /api/activity   -> talkgroup activity (EMPTY until a live source connects)
+  /api/feeds      -> Broadcastify Utah audio feed list (real public listings)
 
-DATA STATUS — READ BEFORE USING:
-  All talkgroup names, site names, and activity in this version are SIMULATED.
-  No real UCA fleet data is in this server. Every demo talkgroup is DEMO-prefixed.
+NO FABRICATED DATA. This shell contains no simulated talkgroups, sites,
+or statuses. Status and activity return empty lists with connected:false
+until a real source is plugged in. Region names are public geography.
 
-FUTURE DATA PLUG-IN POINTS (do not enable until approved):
-  1. Broadcastify Calls Client API (bcfy.io/dev) — replace simulate_activity()
-     with a fetch of live call metadata (groupId {sid}-{talkgroup}, ts).
-     Display talkgroup + area + time ONLY. Never include audio, and never
-     include source/unit IDs in API output. Requires an approved developer
-     key, stored as an environment variable (never in the repo).
-  2. Broadcastify Live Audio Feed Catalog API — replace the static FEEDS list
-     with a programmatic county-by-county feed listing.
-  3. UCA official feed — authoritative system activity/status, if provided.
+TO CONNECT A LIVE SOURCE (do only when approved):
+  1. Broadcastify Calls Client API (bcfy.io/dev) — implement a fetch of
+     live call metadata (groupId {sid}-{talkgroup}, ts) for the activity
+     endpoint. Display talkgroup + area + time ONLY. Never include audio,
+     and never include source/unit IDs in API output. The developer key
+     goes in an environment variable, never in the repo. Verify a Utah
+     node covers UCA before relying on it.
+  2. Broadcastify Live Audio Feed Catalog API — replace the static FEEDS
+     list with programmatic county-by-county listings.
+  3. UCA official feed — authoritative system activity/status, if
+     provided. This is the long-term source.
 
-ACCESS CONTROL: not implemented in this version. The dashboard is intended
-for a RESTRICTED audience (dispatch centers, regional LNOs, fire/EMS/law).
-Add an access gate (login or network restriction) at deployment time; do
-not deploy this demo publicly as-is.
+ACCESS CONTROL: REQUIRED BEFORE ANY DEPLOYMENT. This dashboard is for a
+RESTRICTED audience (dispatch centers, regional LNOs, fire/EMS/law).
+Add a login gate or network restriction before anyone uses it. Do not
+deploy this shell publicly or without an access gate.
 
 Stdlib only. Reads PORT from the environment (Render assigns one).
+Default local port 8892.
 """
 
 import json
 import os
-import random
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 PAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "utah-interop-dashboard.html")
 
+# Public geography: Utah's 8 regions and their counties.
 REGIONS = {
     "BR": {"name": "Bear River", "counties": "Box Elder, Cache, Rich"},
     "WF": {"name": "Wasatch Front", "counties": "Weber, Davis, Morgan"},
@@ -50,38 +52,11 @@ REGIONS = {
     "SE": {"name": "Southeast", "counties": "Carbon, Emery, Grand, San Juan"},
 }
 
-# Demo system health — generic demo names only, no real sites.
-STATUS = [
-    {"region": "BR", "title": "DEMO P25 Site — Bear River", "status": "ok", "label": "Operational",
-     "note": "Demo site. No real site data."},
-    {"region": "WF", "title": "DEMO VHF Repeater — Wasatch Front", "status": "degraded", "label": "Degraded",
-     "note": "Demo status: reduced coverage."},
-    {"region": "OQ", "title": "DEMO Gateway — Oquirrh", "status": "ok", "label": "Operational",
-     "note": "Demo bridge resource."},
-    {"region": "MT", "title": "DEMO P25 Site — Mountain", "status": "out", "label": "Out of service",
-     "note": "Demo outage for illustration."},
-    {"region": "CN", "title": "DEMO Cache Radio Pool — Central", "status": "ok", "label": "Available",
-     "note": "Demo pool: 12 units (fake)."},
-    {"region": "SW", "title": "DEMO VHF Repeater — Southwest", "status": "ok", "label": "Operational",
-     "note": "Demo site. No real site data."},
-    {"region": "NE", "title": "DEMO Gateway — Northeast", "status": "degraded", "label": "Degraded",
-     "note": "Demo status: intermittent link."},
-    {"region": "SE", "title": "DEMO P25 Site — Southeast", "status": "ok", "label": "Operational",
-     "note": "Demo site. No real site data."},
-]
-
-# Demo talkgroups — DEMO-prefixed only. Never add real talkgroup names here.
-DEMO_TGS = [
-    ("DEMO FIRE TAC 1", "Fire"), ("DEMO EMS DISP", "EMS"),
-    ("DEMO LAW TAC 2", "Law"), ("DEMO INTEROP CALL", "Interop"),
-    ("DEMO FIRE OPS 3", "Fire"), ("DEMO SAR 1", "SAR"),
-    ("DEMO EMS TAC 1", "EMS"), ("DEMO LAW DISP", "Law"),
-]
-
 # Broadcastify Utah audio feeds — names verified from the public Utah listen
-# page on 2026-10-24. Individual feed URLs are not hardcoded (they were not
-# verified); the page link below is the verified entry point. Replace with
-# the Live Audio Feed Catalog API for programmatic listings later.
+# page on 2026-10-24. These are real public listings, not simulated data.
+# Individual feed URLs are not hardcoded (they were not verified); the page
+# link below is the verified entry point. Replace with the Live Audio Feed
+# Catalog API for programmatic listings later.
 FEEDS = {
     "page_url": "https://www.broadcastify.com/listen/stid/49",
     "page_label": "All Utah feeds on Broadcastify",
@@ -96,26 +71,6 @@ FEEDS = {
     "note": "Volunteer-run feeds; coverage varies by county. Audio only — feeds do "
             "not provide machine-readable talkgroup activity.",
 }
-
-
-def simulate_activity(count=8):
-    """SIMULATED activity. PLUG-IN POINT: replace with Broadcastify Calls
-    Client API live-call metadata when an approved key exists. Keep output
-    to talkgroup + service + region + last-heard minutes. Never add source
-    (unit) IDs or audio to this output."""
-    now = int(time.time())
-    rows = []
-    for tg, svc in random.sample(DEMO_TGS, min(count, len(DEMO_TGS))):
-        region = random.choice(list(REGIONS.keys()))
-        mins = random.randint(0, 14)
-        rows.append({
-            "talkgroup": tg, "service": svc, "region": region,
-            "region_name": REGIONS[region]["name"],
-            "last_heard_min": mins,
-            "active_now": mins == 0,
-        })
-    rows.sort(key=lambda r: r["last_heard_min"])
-    return {"simulated": True, "updated": now, "activity": rows}
 
 
 def send_json(handler, obj):
@@ -150,9 +105,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == "/api/status":
-            send_json(self, {"simulated": True, "regions": REGIONS, "systems": STATUS})
+            # No live source connected yet: empty systems, honest flag.
+            send_json(self, {"connected": False, "source": None,
+                             "regions": REGIONS, "systems": []})
         elif path == "/api/activity":
-            send_json(self, simulate_activity())
+            # No live source connected yet: empty activity, honest flag.
+            send_json(self, {"connected": False, "source": None, "activity": []})
         elif path == "/api/feeds":
             send_json(self, FEEDS)
         else:
@@ -162,7 +120,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8891"))
+    port = int(os.environ.get("PORT", "8892"))
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print(f"Utah interop dashboard (DEMO DATA) on port {port}", flush=True)
+    print(f"Utah interop dashboard (PRODUCTION SHELL) on port {port}", flush=True)
     server.serve_forever()

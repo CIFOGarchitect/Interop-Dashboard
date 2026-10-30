@@ -3,14 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Utah Interoperability Dashboard — v2 (Demo Data)</title>
+<title>Utah Interoperability Dashboard</title>
 <style>
   :root { --navy:#0a2a5e; --navy2:#071d3b; --gold:#c9a227; --bg:#0b1220; --card:#141f33;
-    --green:#2ecc71; --amber:#f5b301; --red:#e74c3c; --purple:#9b59b6; --text:#e8edf5; --muted:#9aa7bd; }
+    --green:#2ecc71; --amber:#f5b301; --red:#e74c3c; --text:#e8edf5; --muted:#9aa7bd; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:Arial, Helvetica, sans-serif; background:var(--bg); color:var(--text); }
-  .demo-banner { background:var(--purple); color:#fff; text-align:center; padding:10px 12px; font-weight:bold; }
-  .demo-banner small { display:block; font-weight:normal; opacity:.9; margin-top:2px; }
   .access-note { background:#3a2a00; color:#ffd970; text-align:center; padding:8px 12px; font-size:14px; }
   header { background:linear-gradient(180deg, var(--navy), var(--navy2)); border-bottom:3px solid var(--gold); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; }
   header h1 { margin:0; font-size:26px; }
@@ -33,8 +31,7 @@
   .act-row:last-child { border-bottom:none; }
   .act-row .tg { font-weight:bold; }
   .act-row .meta { color:var(--muted); font-size:13px; }
-  .live-dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--red); margin-right:6px; animation:blink 1.2s infinite; }
-  @keyframes blink { 50% { opacity:.25; } }
+  .empty { color:var(--muted); font-size:15px; padding:10px 0; }
   .feeds li, .steps li, .sources li { margin:8px 0; font-size:15px; color:#cdd6e4; }
   .feeds a { color:#7fb2ff; }
   .tbd { color:var(--amber); font-weight:bold; }
@@ -42,14 +39,11 @@
 </style>
 </head>
 <body>
-<div class="demo-banner">v2 — DEMO DATA ONLY
-  <small>All talkgroups, sites, and activity are simulated. No real UCA data. Every talkgroup name is DEMO-prefixed.</small>
-</div>
-<div class="access-note">Restricted audience: dispatch centers, regional LNOs, fire, EMS, police. Access control (login or network restriction) to be added at deployment — this demo has no real access gate.</div>
+<div class="access-note">Restricted audience: dispatch centers, regional LNOs, fire, EMS, police. An access gate (login or network restriction) is required before deployment.</div>
 <header>
   <div>
     <h1>Utah Interoperability Dashboard</h1>
-    <div class="sub">System status &bull; v2 server edition &bull; Data: simulated (plug-in points ready for live sources)</div>
+    <div class="sub">System status &bull; Production shell &bull; Live sources not yet connected</div>
   </div>
   <div id="clock">--:--:--</div>
 </header>
@@ -58,12 +52,12 @@
   <div class="regions" id="regionBtns"></div>
   <div class="region-note" id="regionNote"></div>
 
-  <h2>System health <span style="color:var(--muted);font-size:13px;">(demo statuses — server: /api/status)</span></h2>
+  <h2>System health <span style="color:var(--muted);font-size:13px;">(server: /api/status)</span></h2>
   <div class="cards" id="healthCards"></div>
 
-  <h2><span class="live-dot"></span>Talkgroup activity <span style="color:var(--muted);font-size:13px;">(SIMULATED — server: /api/activity, refreshes every 10s)</span></h2>
+  <h2>Talkgroup activity <span style="color:var(--muted);font-size:13px;">(server: /api/activity)</span></h2>
   <div class="activity" id="activity"></div>
-  <p style="color:var(--muted);font-size:13px;">The real version shows talkgroup, area, and last-heard time only. No audio, no unit IDs.</p>
+  <p style="color:var(--muted);font-size:13px;">When a live source connects, this panel shows talkgroup, area, and last-heard time only. No audio, no unit IDs.</p>
 
   <h2>Listen — Broadcastify Utah audio feeds</h2>
   <p style="color:var(--muted);font-size:14px;">Volunteer-run live audio. Coverage varies by county. Server: /api/feeds.</p>
@@ -77,18 +71,19 @@
     <li>State the incident, the area, and the resource needed (gateway, cache radios, COML). <span class="tbd">[Steps TBD]</span></li>
   </ol>
 
-  <h2>How v2 gets real data (when approved)</h2>
+  <h2>Connecting live data</h2>
   <ul class="sources">
-    <li><b>Broadcastify Calls Client API:</b> replace the simulated activity with live call metadata (system, talkgroup, time). Needs an approved developer key, stored as a server environment variable — never in the repo.</li>
-    <li><b>Broadcastify Live Audio Feed Catalog API:</b> replace the static feed list with programmatic county-by-county listings.</li>
+    <li><b>Broadcastify Calls Client API:</b> live call metadata (system, talkgroup, time) for the activity panel. Needs an approved developer key, stored as a server environment variable — never in the repo.</li>
+    <li><b>Broadcastify Live Audio Feed Catalog API:</b> programmatic county-by-county feed listings, replacing the static list above.</li>
     <li><b>UCA official feed:</b> authoritative system activity/status, if provided — the long-term source.</li>
   </ul>
 </main>
-<footer>Demo only — not for operational use. Real deployment: restricted audience, activity-only display, no real fleet data without approval.</footer>
+<footer>Production shell — no fabricated data. Status and activity sections show empty states until a live source connects.</footer>
 <script>
 let REGIONS = {};
 let currentRegion = "ALL";
 let statusData = [];
+let statusConnected = false;
 
 function pillClass(s) { return s === "ok" ? "ok" : (s === "degraded" ? "degraded" : "out"); }
 
@@ -112,11 +107,15 @@ function renderRegions() {
 function renderHealth() {
   const wrap = document.getElementById("healthCards");
   const list = statusData.filter(function(h) { return currentRegion === "ALL" || h.region === currentRegion; });
-  wrap.innerHTML = list.length ? list.map(function(h) {
+  if (!list.length) {
+    wrap.innerHTML = "<p class='empty'>No live status source connected yet. System health will appear here once a data source is connected.</p>";
+    return;
+  }
+  wrap.innerHTML = list.map(function(h) {
     return "<div class='card'><h3>" + h.title + "</h3>" +
       "<p><span class='pill " + pillClass(h.status) + "'>" + h.label + "</span></p>" +
       "<p>" + h.note + "</p></div>";
-  }).join("") : "<p style='color:var(--muted);'>No demo systems in this region.</p>";
+  }).join("");
 }
 
 async function loadStatus() {
@@ -125,11 +124,12 @@ async function loadStatus() {
     const data = await res.json();
     REGIONS = data.regions || {};
     statusData = data.systems || [];
+    statusConnected = !!data.connected;
     renderRegions();
     renderHealth();
   } catch (e) {
     document.getElementById("healthCards").innerHTML =
-      "<p style='color:var(--muted);'>Status server unreachable — demo data unavailable.</p>";
+      "<p class='empty'>Status server unreachable.</p>";
   }
 }
 
@@ -142,11 +142,11 @@ async function loadActivity() {
         "<span class='meta'>&bull; " + a.service + " &bull; " + a.region_name + " Region</span></div>" +
         "<div class='meta'>" + (a.active_now ? "ACTIVE NOW" : "last heard " + a.last_heard_min + " min ago") + "</div></div>";
     });
-    document.getElementById("activity").innerHTML = rows.join("") ||
-      "<p style='color:var(--muted);'>No simulated activity right now.</p>";
+    document.getElementById("activity").innerHTML = rows.length ? rows.join("") :
+      "<p class='empty'>No live activity source connected yet. Talkgroup activity will appear here once a data source is connected.</p>";
   } catch (e) {
     document.getElementById("activity").innerHTML =
-      "<p style='color:var(--muted);'>Activity server unreachable.</p>";
+      "<p class='empty'>Activity server unreachable.</p>";
   }
 }
 
