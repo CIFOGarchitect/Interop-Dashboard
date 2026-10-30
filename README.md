@@ -73,8 +73,18 @@ the repo, never chat):
   talkgroups on the system pass. Keep the list in Render only —
   never in the repo or in chat.
 - `BROADCASTIFY_CALLS_ENDPOINT` — `https://api.bcfy.io/calls/v1/live/`
-  (live method from the portal Calls docs; use `{sid}` in the URL
-  where the system id belongs, if the method needs it)
+  (live method from the portal Calls docs). The server scopes the
+  fetch itself: if the URL has no query attribute, it appends
+  `?sid=<system>` (live parameters are mutually exclusive, so an
+  existing `sid`, `groups`, `nodeId`, or `playlist_uuid` is respected).
+  With no `pos`/`init`, the live method returns the last 5 minutes
+  of calls for that system — well matched to the 60-second poll.
+- `BROADCASTIFY_USER_ID` / `BROADCASTIFY_USER_TOKEN` — required for
+  live calls except public playlists: the authenticated user token
+  (`sub`/`utk` in the JWT) from the common endpoint's auth method.
+  How to obtain and refresh these is still to be confirmed from the
+  portal Common Endpoint Docs; do not put a Broadcastify account
+  password in chat or in the repo.
 
 If the API answers but returns no UCA groups, a Utah node is not
 feeding UCA — that is a coverage gap, not a code bug. If the live

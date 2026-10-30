@@ -153,13 +153,19 @@ def _b64url(data):
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
 
-def _mint_jwt(api_key, key_id, app_id, now=None, lifetime=3600):
+def _mint_jwt(api_key, key_id, app_id, now=None, lifetime=3600,
+              user_id=None, user_token=None):
     """Mint a short-lived JWT per portal docs (HS256, 1-hour expiry).
     Verified against the docs' worked sample (same inputs, 60s lifetime
-    -> same token)."""
+    -> same token). Live Calls (non-playlist) requires an authenticated
+    user token in the JWT: when user_id/user_token are supplied they
+    become payload sub (integer) and utk."""
     now = int(now if now is not None else time.time())
     header = {"alg": "HS256", "typ": "JWT", "kid": key_id}
     payload = {"iss": app_id, "iat": now, "exp": now + lifetime}
+    if user_id is not None and user_token:
+        payload["sub"] = int(user_id)
+        payload["utk"] = user_token
     enc_header = _b64url(json.dumps(header, separators=(",", ":")).encode())
     enc_payload = _b64url(json.dumps(payload, separators=(",", ":")).encode())
     signing_input = "%s.%s" % (enc_header, enc_payload)
@@ -236,8 +242,21 @@ def get_calls_activity():
             cached = dict(_calls_cache)
             cached.pop("fetched_at", None)
             return cached
+    # Live Calls parameters are mutually exclusive (playlist_uuid, sid,
+    # nodeId, groups). If the endpoint has no query attribute at all,
+    # scope the fetch to this system with ?sid=<sid> so the request
+    # names an entity and the pull itself is system-only, not global.
     url = endpoint.replace("{sid}", sid)
-    token = _mint_jwt(key, key_id, app_id, now=now)
+    parts = urllib.parse.urlparse(url)
+    query = dict(urllib.parse.parse_qsl(parts.query))
+    if not any(k in query for k in ("playlist_uuid", "sid", "nodeId",
+                                    "groups")):
+        query["sid"] = sid
+        url = urllib.parse.urlunparse(
+            parts._replace(query=urllib.parse.urlencode(query)))
+    token = _mint_jwt(key, key_id, app_id, now=now,
+                      user_id=os.environ.get("BROADCASTIFY_USER_ID"),
+                      user_token=os.environ.get("BROADCASTIFY_USER_TOKEN"))
     req = urllib.request.Request(
         url, headers={"Authorization": "Bearer %s" % token,
                       "Accept": "application/json"})
