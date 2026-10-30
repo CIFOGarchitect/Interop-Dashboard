@@ -106,6 +106,17 @@ talkgroup,alias,region
 `region` is optional — use a full region name, or leave it blank for
 Statewide. A partial list is fine; only listed talkgroups get names.
 
+**Region sorting (RegionId):** when the alias file's `region` column
+holds the talkgroup list's RegionId (as `Region 10`, `Region 20`,
+`Region 30`, `Region 40`), the activity panel groups rows by that
+region code — ascending, most recent first within each region —
+with unmapped talkgroups last under Statewide. The panel also shows
+filter buttons built from the regions actually present, so activity
+can be narrowed to one region code. The region codes are the source
+list's own codes; they are NOT yet mapped to the dashboard's eight
+geographic regions or to counties, so do not read a code as a place
+until that mapping is supplied.
+
 **How to provide the file — do NOT put it in the repo or in chat.**
 The alias list is restricted working material. Recommended route:
 Render dashboard → service → Environment → Secret Files → Add

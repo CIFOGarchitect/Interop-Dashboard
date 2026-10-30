@@ -410,10 +410,28 @@ def _extract_live_data(data):
     return calls, last_pos
 
 
+def _region_order(region_name):
+    """Sort order for a region label: numeric 'Region N' codes ascending,
+    then named regions alphabetically, then Statewide/unmapped last."""
+    if region_name == "Statewide":
+        return (9999, "")
+    if region_name.startswith("Region ") and region_name[7:].isdigit():
+        return (int(region_name[7:]), "")
+    return (5000, region_name)
+
+
 def _state_to_rows(state, now, aliases):
-    """Build panel rows from talkgroup -> latest-timestamp state."""
+    """Build panel rows from talkgroup -> latest-timestamp state, grouped
+    by region (RegionId from the talkgroup list) and most recent first
+    within each region."""
+    def sort_key(kv):
+        tg, ts = kv
+        region_name = ((aliases or {}).get(tg, {}).get("region") or "Statewide")
+        order, name = _region_order(region_name)
+        return (order, name, -ts)
+
     rows = []
-    for tg, ts in sorted(state.items(), key=lambda kv: kv[1], reverse=True):
+    for tg, ts in sorted(state.items(), key=sort_key):
         age = max(0.0, now - ts)
         info = (aliases or {}).get(tg, {})
         rows.append({
