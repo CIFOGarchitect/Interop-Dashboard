@@ -195,11 +195,22 @@ def _alias_csv_path():
     env_path = os.environ.get("TALKGROUPS_CSV_PATH", "").strip()
     if env_path:
         return env_path
-    for candidate in ("/etc/secrets/talkgroups.csv",
-                      os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                   "utah-interop-talkgroups.csv")):
+    candidates = ["/etc/secrets/talkgroups.csv",
+                  "/etc/secrets/utah-interop-talkgroups.csv",
+                  "/etc/secrets/utah-interop-talkgroups-for-render.csv",
+                  os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "utah-interop-talkgroups.csv")]
+    for candidate in candidates:
         if os.path.exists(candidate):
             return candidate
+    # Last resort: any CSV secret file, so a differently-named upload
+    # still loads instead of silently mapping nothing.
+    try:
+        for name in sorted(os.listdir("/etc/secrets")):
+            if name.lower().endswith(".csv"):
+                return os.path.join("/etc/secrets", name)
+    except OSError:
+        pass
     return None
 
 
@@ -220,8 +231,16 @@ def _load_aliases():
     try:
         with open(path, newline="", encoding="utf-8-sig") as f:
             for row in csv.DictReader(f):
-                tg = (row.get("talkgroup") or "").strip()
-                alias = (row.get("alias") or "").strip()
+                # Accept both the converted dashboard format
+                # (talkgroup,alias,region) and the original master-list
+                # format (TG Id,Name,...). RegionId is deliberately
+                # ignored: its numeric codes do not map to the
+                # dashboard's region names, so region stays Statewide
+                # unless a "region" column names one.
+                tg = (row.get("talkgroup") or row.get("TG Id")
+                      or row.get("TGID") or "").strip()
+                alias = (row.get("alias") or row.get("Name")
+                         or row.get("name") or "").strip()
                 region = (row.get("region") or "").strip()
                 if tg and alias:
                     mapping[tg] = {"alias": alias,
