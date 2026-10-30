@@ -140,6 +140,11 @@ FEEDS = {
 #   BROADCASTIFY_API_KEY_ID     Key ID (JWT header "kid")
 #   BROADCASTIFY_APP_ID         Application ID (JWT payload "iss")
 #   BROADCASTIFY_SYSTEM_ID      RadioReference sid; default 12042 (UCA P25)
+#   BROADCASTIFY_TALKGROUPS     Optional allowlist: comma-separated
+#     decimal talkgroup IDs (the part after "12042-" in groupId), e.g.
+#     "1234,5678". When set, only those talkgroups reach the page;
+#     when unset, all talkgroups on the system pass. Set it in the
+#     host's environment, never in the repo or chat.
 #   BROADCASTIFY_CALLS_ENDPOINT Full live-calls method URL from the
 #     portal Calls docs (under https://api.bcfy.io/calls/v1). Use {sid}
 #     where the system id belongs. Until this is set, /api/activity
@@ -168,9 +173,11 @@ _calls_cache = {"fetched_at": 0.0, "activity": [], "connected": False,
 _calls_lock = threading.Lock()
 
 
-def _calls_to_rows(calls, sid, now):
+def _calls_to_rows(calls, sid, now, talkgroups=None):
     """Collapse raw call records to one row per talkgroup, metadata only.
-    Drops audio URLs, source/unit IDs, node ids, and everything else."""
+    Drops audio URLs, source/unit IDs, node ids, and everything else.
+    talkgroups: optional set of allowed decimal talkgroup IDs; when
+    given, only those talkgroups pass."""
     latest = {}
     for item in calls:
         if not isinstance(item, dict):
@@ -191,7 +198,9 @@ def _calls_to_rows(calls, sid, now):
         if not str(group_id).startswith(prefix):
             continue
         tg = str(group_id)[len(prefix):]
-        if not tg or (tg in latest and latest[tg] >= ts):
+        if not tg or (talkgroups is not None and tg not in talkgroups):
+            continue
+        if tg in latest and latest[tg] >= ts:
             continue
         latest[tg] = ts
     rows = []
@@ -214,6 +223,9 @@ def get_calls_activity():
     app_id = os.environ.get("BROADCASTIFY_APP_ID")
     endpoint = os.environ.get("BROADCASTIFY_CALLS_ENDPOINT")
     sid = os.environ.get("BROADCASTIFY_SYSTEM_ID", "12042")
+    tg_env = os.environ.get("BROADCASTIFY_TALKGROUPS", "").strip()
+    talkgroups = ({t.strip() for t in tg_env.split(",") if t.strip()}
+                  if tg_env else None)
     if not key or not key_id or not app_id or not endpoint:
         return {"connected": False, "source": "Broadcastify Calls",
                 "activity": [],
@@ -233,8 +245,21 @@ def get_calls_activity():
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:  # network/auth/parse failure: fail soft, no crash
+        # Surface the HTTP status (and any short error body Broadcastify
+        # returns) so a rejection can be diagnosed without guessing:
+        # 401 = JWT rejected, 403 = entitlement/forbidden, 404 = path
+        # wrong, 400 = missing/invalid parameter.
+        detail = type(exc).__name__
+        if isinstance(exc, urllib.error.HTTPError):
+            detail = "HTTP %s" % exc.code
+            try:
+                body = exc.read().decode("utf-8", "replace").strip()
+                if body:
+                    detail += " " + body[:200]
+            except Exception:
+                pass
         result = {"connected": False, "source": "Broadcastify Calls",
-                  "activity": [], "error": "Calls fetch failed: %s" % type(exc).__name__}
+                  "activity": [], "error": "Calls fetch failed: %s" % detail}
         with _calls_lock:
             _calls_cache.update(result, fetched_at=now)
         return result
@@ -244,7 +269,7 @@ def get_calls_activity():
         calls = data
     else:
         calls = []
-    rows = _calls_to_rows(calls, sid, now)
+    rows = _calls_to_rows(calls, sid, now, talkgroups)
     result = {"connected": True, "source": "Broadcastify Calls",
               "activity": rows, "error": None}
     with _calls_lock:

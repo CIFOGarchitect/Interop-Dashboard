@@ -65,7 +65,13 @@ the repo, never chat):
 - `BROADCASTIFY_API_KEY` — Calls API key (JWT HMAC secret)
 - `BROADCASTIFY_API_KEY_ID` — Key ID, from API Key definitions
 - `BROADCASTIFY_APP_ID` — Application ID, from application definitions
-- `BROADCASTIFY_SYSTEM_ID` — optional, defaults to `12042`
+- `BROADCASTIFY_SYSTEM_ID` — optional, defaults to `12042` (UCA P25);
+  change it to limit the dashboard to a different system instead
+- `BROADCASTIFY_TALKGROUPS` — optional allowlist: comma-separated
+  decimal talkgroup IDs (the part after `12042-` in a group ID).
+  When set, only those talkgroups reach the page; when unset, all
+  talkgroups on the system pass. Keep the list in Render only —
+  never in the repo or in chat.
 - `BROADCASTIFY_CALLS_ENDPOINT` — `https://api.bcfy.io/calls/v1/live/`
   (live method from the portal Calls docs; use `{sid}` in the URL
   where the system id belongs, if the method needs it)
