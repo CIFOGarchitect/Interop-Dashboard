@@ -57,6 +57,7 @@ import base64
 import binascii
 import csv
 import hashlib
+import io
 import hmac
 import json
 import os
@@ -214,8 +215,58 @@ def _alias_csv_path():
     return None
 
 
+def _parse_alias_rows(reader):
+    """Build talkgroup -> {alias, region} from CSV dict rows.
+    Accepts both the converted dashboard format (talkgroup,alias,region)
+    and the original master-list format (TG Id,Name,...). RegionId is
+    deliberately ignored: its numeric codes do not map to the
+    dashboard's region names, so region stays Statewide unless a
+    "region" column names one."""
+    mapping = {}
+    for row in reader:
+        tg = (row.get("talkgroup") or row.get("TG Id")
+              or row.get("TGID") or "").strip()
+        alias = (row.get("alias") or row.get("Name")
+                 or row.get("name") or "").strip()
+        region = (row.get("region") or "").strip()
+        if tg and alias:
+            mapping[tg] = {"alias": alias, "region": region or None}
+    return mapping
+
+
+def _alias_debug():
+    """Diagnostic only: where the alias file was found (path or env),
+    and the names of CSV files visible under /etc/secrets. Filenames
+    only — never file contents, talkgroups, or aliases."""
+    try:
+        secret_files = sorted(n for n in os.listdir("/etc/secrets")
+                              if n.lower().endswith(".csv"))
+    except OSError:
+        secret_files = []
+    if os.environ.get("TALKGROUPS_CSV_CONTENT", "").strip():
+        return {"source": "env", "path": None,
+                "secret_files": secret_files}
+    path = _alias_csv_path()
+    return {"source": "file" if path else "none", "path": path,
+            "secret_files": secret_files}
+
+
 def _load_aliases():
-    """Load talkgroup -> {alias, region} from CSV, cached by mtime."""
+    """Load talkgroup -> {alias, region} from CSV, cached by mtime/hash.
+    Sources in order: TALKGROUPS_CSV_CONTENT env var (full CSV text,
+    bypasses the Secret File mount entirely), TALKGROUPS_CSV_PATH,
+    Secret File candidates, any CSV under /etc/secrets, repo file."""
+    content = os.environ.get("TALKGROUPS_CSV_CONTENT", "").strip()
+    if content:
+        key = ("env", hashlib.sha256(content.encode()).hexdigest())
+        if _alias_cache.get("key") == key:
+            return _alias_cache["map"]
+        try:
+            mapping = _parse_alias_rows(csv.DictReader(io.StringIO(content)))
+        except csv.Error:
+            return _alias_cache["map"]
+        _alias_cache.update(key=key, map=mapping)
+        return mapping
     path = _alias_csv_path()
     if not path or not os.path.exists(path):
         return {}
@@ -223,33 +274,33 @@ def _load_aliases():
         stat = os.stat(path)
     except OSError:
         return {}
-    if (_alias_cache["path"] == path
-            and _alias_cache["mtime"] == stat.st_mtime
-            and _alias_cache["size"] == stat.st_size):
+    key = ("file", path, stat.st_mtime, stat.st_size)
+    if _alias_cache.get("key") == key:
         return _alias_cache["map"]
-    mapping = {}
     try:
         with open(path, newline="", encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                # Accept both the converted dashboard format
-                # (talkgroup,alias,region) and the original master-list
-                # format (TG Id,Name,...). RegionId is deliberately
-                # ignored: its numeric codes do not map to the
-                # dashboard's region names, so region stays Statewide
-                # unless a "region" column names one.
-                tg = (row.get("talkgroup") or row.get("TG Id")
-                      or row.get("TGID") or "").strip()
-                alias = (row.get("alias") or row.get("Name")
-                         or row.get("name") or "").strip()
-                region = (row.get("region") or "").strip()
-                if tg and alias:
-                    mapping[tg] = {"alias": alias,
-                                   "region": region or None}
+            mapping = _parse_alias_rows(csv.DictReader(f))
     except (OSError, csv.Error):
         return _alias_cache["map"]
-    _alias_cache.update(path=path, mtime=stat.st_mtime,
+    _alias_cache.update(key=key, path=path, mtime=stat.st_mtime,
                         size=stat.st_size, map=mapping)
     return mapping
+
+
+def _call_field_names(calls):
+    """Field NAMES present in raw live records, for diagnostics only.
+    Returns sorted key names (with parent.key for one nested level).
+    Never returns values — no audio URLs, unit IDs, or call content."""
+    names = set()
+    for item in calls:
+        if not isinstance(item, dict):
+            continue
+        for key, value in item.items():
+            names.add(str(key))
+            if isinstance(value, dict):
+                for nested in value:
+                    names.add("%s.%s" % (key, nested))
+    return sorted(names)
 
 
 def _calls_to_rows(calls, sid, now, talkgroups=None, aliases=None):
@@ -353,9 +404,13 @@ def get_calls_activity():
                     detail += " " + body[:200]
             except Exception:
                 pass
+        debug = _alias_debug()
         result = {"connected": False, "source": "Broadcastify Calls",
                   "activity": [], "error": "Calls fetch failed: %s" % detail,
-                  "aliases_loaded": len(_load_aliases())}
+                  "aliases_loaded": len(_load_aliases()),
+                  "alias_source": debug["source"],
+                  "alias_path": debug["path"],
+                  "alias_secret_files": debug["secret_files"]}
         with _calls_lock:
             _calls_cache.update(result, fetched_at=now)
         return result
@@ -367,9 +422,15 @@ def get_calls_activity():
         calls = []
     aliases = _load_aliases()
     rows = _calls_to_rows(calls, sid, now, talkgroups, aliases)
+    debug = _alias_debug()
     result = {"connected": True, "source": "Broadcastify Calls",
               "activity": rows, "error": None,
-              "aliases_loaded": len(aliases)}
+              "aliases_loaded": len(aliases),
+              "alias_source": debug["source"],
+              "alias_path": debug["path"],
+              "alias_secret_files": debug["secret_files"],
+              "call_fields": _call_field_names(calls),
+              "call_records_seen": len(calls)}
     with _calls_lock:
         _calls_cache.update(result, fetched_at=now)
     return result

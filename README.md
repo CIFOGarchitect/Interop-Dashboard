@@ -112,9 +112,26 @@ Render dashboard → service → Environment → Secret Files → Add
 Secret File, filename `talkgroups.csv`, paste the file contents.
 The server reads `/etc/secrets/talkgroups.csv` automatically on
 restart. Alternative: set `TALKGROUPS_CSV_PATH` to a file path the
-server can read. A repo file named `utah-interop-talkgroups.csv`
+server can read. Fallback if the Secret File mount is not working:
+set `TALKGROUPS_CSV_CONTENT` to the full CSV text as an environment
+variable and restart — the server parses it directly, no file
+mount needed. A repo file named `utah-interop-talkgroups.csv`
 is also read, but only use that route if the repo is private and
 the list is approved for it — never in a public repo.
+
+**Diagnosing alias loading:** `/api/activity` reports
+`aliases_loaded` (mapped rows), `alias_source` (`env`, `file`, or
+`none`), `alias_path` (file found, if any), and
+`alias_secret_files` (CSV filenames visible under `/etc/secrets`,
+names only). If `alias_secret_files` is empty, no Secret File is
+mounted on this service.
+
+**Field-names diagnostic:** `/api/activity` also reports
+`call_fields` (field names present in the raw live records, names
+only — never values, audio URLs, or unit IDs) and
+`call_records_seen` (raw records in the last fetch). This is a
+snapshot of the current 5-minute live window, not a full schema;
+rare fields may not appear in a given window.
 
 ## Going live (in order)
 
