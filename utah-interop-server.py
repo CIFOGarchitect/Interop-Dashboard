@@ -335,7 +335,8 @@ def get_calls_activity():
             except Exception:
                 pass
         result = {"connected": False, "source": "Broadcastify Calls",
-                  "activity": [], "error": "Calls fetch failed: %s" % detail}
+                  "activity": [], "error": "Calls fetch failed: %s" % detail,
+                  "aliases_loaded": len(_load_aliases())}
         with _calls_lock:
             _calls_cache.update(result, fetched_at=now)
         return result
@@ -345,9 +346,11 @@ def get_calls_activity():
         calls = data
     else:
         calls = []
-    rows = _calls_to_rows(calls, sid, now, talkgroups, _load_aliases())
+    aliases = _load_aliases()
+    rows = _calls_to_rows(calls, sid, now, talkgroups, aliases)
     result = {"connected": True, "source": "Broadcastify Calls",
-              "activity": rows, "error": None}
+              "activity": rows, "error": None,
+              "aliases_loaded": len(aliases)}
     with _calls_lock:
         _calls_cache.update(result, fetched_at=now)
     return result
