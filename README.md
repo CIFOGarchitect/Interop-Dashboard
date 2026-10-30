@@ -57,20 +57,23 @@ with anyone. Do not deploy this shell publicly without it.
 (RadioReference sid 12042) and shows talkgroup + service + last-heard
 only. Audio URLs and source/unit IDs are stripped server-side and
 never reach the page. One server-side fetch per 60 seconds serves all
-viewers. Environment variables (Render: Environment tab, never the
-repo, never chat):
+viewers. Auth: the server mints its own short-lived JWT per portal
+docs (HS256, Key ID + App ID, 1-hour expiry) — no Broadcastify user
+login needed. Environment variables (Render: Environment tab, never
+the repo, never chat):
 
-- `BROADCASTIFY_API_KEY` — Calls Client API developer key
+- `BROADCASTIFY_API_KEY` — Calls API key (JWT HMAC secret)
+- `BROADCASTIFY_API_KEY_ID` — Key ID, from API Key definitions
+- `BROADCASTIFY_APP_ID` — Application ID, from application definitions
 - `BROADCASTIFY_SYSTEM_ID` — optional, defaults to `12042`
-- `BROADCASTIFY_CALLS_ENDPOINT` — full live-calls endpoint URL from
-  the developer portal docs (bcfy.io/dev/docs). Use `{sid}` where the
-  system id belongs. Until this is set, `/api/activity` honestly
-  reports `connected: false`.
+- `BROADCASTIFY_CALLS_ENDPOINT` — `https://api.bcfy.io/calls/v1/live/`
+  (live method from the portal Calls docs; use `{sid}` in the URL
+  where the system id belongs, if the method needs it)
 
-Still to confirm from the portal docs (non-secret, no key needed):
-the exact live-calls endpoint path and auth style. If the API answers
-but returns no UCA groups, a Utah node is not feeding UCA — that is a
-coverage gap, not a code bug.
+If the API answers but returns no UCA groups, a Utah node is not
+feeding UCA — that is a coverage gap, not a code bug. If the live
+method takes filter parameters (system/group), add them to the
+endpoint URL so reads — and metered cost — stay scoped to UCA.
 
 ## Going live (in order)
 

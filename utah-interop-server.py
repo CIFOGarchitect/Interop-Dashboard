@@ -15,15 +15,23 @@ BROADCASTIFY CALLS WIRING (added Oct 30, 2026; key approved, see README).
   /api/activity fetches live call metadata for the UCA P25 system
   (RadioReference sid 12042; the older sid 601 system is deprecated)
   and returns talkgroup + service + last-heard ONLY. Audio URLs and
-  source/unit IDs are stripped and never leave the server. The developer
-  key goes in BROADCASTIFY_API_KEY (environment only, never the repo).
-  The exact live-calls endpoint path and auth style come from the
-  developer portal docs (bcfy.io/dev/docs, login-gated) and are set via
-  BROADCASTIFY_CALLS_ENDPOINT; until that is set, /api/activity honestly
-  reports connected:false. One server-side fetch per 60s serves all
-  dashboard viewers (cost does not multiply per viewer). Verify a Utah
-  node covers UCA before relying on it: if the API answers but returns
-  no UCA groups, coverage — not the code — is the gap.
+  source/unit IDs are stripped and never leave the server.
+  AUTH (per portal docs, Getting Started): Broadcastify does NOT issue
+  tokens — the server mints its own short-lived JWT for every fetch:
+  header {alg HS256, typ JWT, kid=<API_KEY_ID>}, payload {iss=<APP_ID>,
+  iat=now, exp=now+3600}, signature HMAC-SHA256(api_key, header.payload)
+  with base64url encoding and trailing "=" stripped. No Broadcastify
+  user login is needed (the /common/v1/auth method only supplies sub/utk
+  for user-authenticated endpoints, which this dashboard does not use).
+  Secrets/ids go in environment variables only, never the repo:
+  BROADCASTIFY_API_KEY (HMAC secret), BROADCASTIFY_API_KEY_ID (kid),
+  BROADCASTIFY_APP_ID (iss). The exact live-calls method path under
+  https://api.bcfy.io/calls/v1 comes from the portal Calls docs and is
+  set via BROADCASTIFY_CALLS_ENDPOINT; until that is set, /api/activity
+  honestly reports connected:false. One server-side fetch per 60s serves
+  all dashboard viewers (cost does not multiply per viewer). Verify a
+  Utah node covers UCA before relying on it: if the API answers but
+  returns no UCA groups, coverage — not the code — is the gap.
   2. Broadcastify Live Audio Feed Catalog API — replace the static FEEDS
      list with programmatic county-by-county listings.
   3. UCA official feed — authoritative system activity/status, if
@@ -47,6 +55,8 @@ Default local port 8892.
 
 import base64
 import binascii
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -126,13 +136,31 @@ FEEDS = {
 
 # --- Broadcastify Calls activity fetch (metadata only) -------------------
 # Env vars (set on the host, never in the repo):
-#   BROADCASTIFY_API_KEY       Calls Client API developer key
-#   BROADCASTIFY_SYSTEM_ID     RadioReference sid; default 12042 (UCA P25)
-#   BROADCASTIFY_CALLS_ENDPOINT Full live-calls endpoint URL from the
-#     developer portal docs. Use {sid} where the system id belongs and
-#     {key} where the key belongs if the documented style needs it in
-#     the URL; otherwise the key is sent as a Bearer header. Until this
-#     is set, /api/activity reports connected:false (no guessing).
+#   BROADCASTIFY_API_KEY        Calls API key (HMAC secret for JWT signing)
+#   BROADCASTIFY_API_KEY_ID     Key ID (JWT header "kid")
+#   BROADCASTIFY_APP_ID         Application ID (JWT payload "iss")
+#   BROADCASTIFY_SYSTEM_ID      RadioReference sid; default 12042 (UCA P25)
+#   BROADCASTIFY_CALLS_ENDPOINT Full live-calls method URL from the
+#     portal Calls docs (under https://api.bcfy.io/calls/v1). Use {sid}
+#     where the system id belongs. Until this is set, /api/activity
+#     reports connected:false (no guessing).
+def _b64url(data):
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _mint_jwt(api_key, key_id, app_id, now=None, lifetime=3600):
+    """Mint a short-lived JWT per portal docs (HS256, 1-hour expiry).
+    Verified against the docs' worked sample (same inputs, 60s lifetime
+    -> same token)."""
+    now = int(now if now is not None else time.time())
+    header = {"alg": "HS256", "typ": "JWT", "kid": key_id}
+    payload = {"iss": app_id, "iat": now, "exp": now + lifetime}
+    enc_header = _b64url(json.dumps(header, separators=(",", ":")).encode())
+    enc_payload = _b64url(json.dumps(payload, separators=(",", ":")).encode())
+    signing_input = "%s.%s" % (enc_header, enc_payload)
+    sig = hmac.new(api_key.encode(), signing_input.encode(),
+                   hashlib.sha256).digest()
+    return "%s.%s" % (signing_input, _b64url(sig))
 CALLS_TTL_SECONDS = 60
 CALLS_MAX_ROWS = 50
 _calls_cache = {"fetched_at": 0.0, "activity": [], "connected": False,
@@ -182,12 +210,14 @@ def _calls_to_rows(calls, sid, now):
 def get_calls_activity():
     """Fetch (cached 60s) or return the honest not-connected state."""
     key = os.environ.get("BROADCASTIFY_API_KEY")
+    key_id = os.environ.get("BROADCASTIFY_API_KEY_ID")
+    app_id = os.environ.get("BROADCASTIFY_APP_ID")
     endpoint = os.environ.get("BROADCASTIFY_CALLS_ENDPOINT")
     sid = os.environ.get("BROADCASTIFY_SYSTEM_ID", "12042")
-    if not key or not endpoint:
+    if not key or not key_id or not app_id or not endpoint:
         return {"connected": False, "source": "Broadcastify Calls",
                 "activity": [],
-                "error": "Calls API not configured (key/endpoint missing)"}
+                "error": "Calls API not configured (key/key id/app id/endpoint missing)"}
     now = time.time()
     with _calls_lock:
         if now - _calls_cache["fetched_at"] < CALLS_TTL_SECONDS:
@@ -195,10 +225,9 @@ def get_calls_activity():
             cached.pop("fetched_at", None)
             return cached
     url = endpoint.replace("{sid}", sid)
-    if "{key}" in url:
-        url = url.replace("{key}", urllib.parse.quote(key))
+    token = _mint_jwt(key, key_id, app_id, now=now)
     req = urllib.request.Request(
-        url, headers={"Authorization": "Bearer %s" % key,
+        url, headers={"Authorization": "Bearer %s" % token,
                       "Accept": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
